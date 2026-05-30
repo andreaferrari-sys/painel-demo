@@ -855,44 +855,65 @@ function detectarCategoria(desc){
   return null;
 }
 
+function parseCsvLinha(linha){
+  const cols=[]; let atual=''; let aspas=false;
+  for(let i=0;i<linha.length;i++){
+    const c=linha[i];
+    if(c==='"'){aspas=!aspas;}
+    else if(c===','&&!aspas){cols.push(atual.trim());atual='';}
+    else{atual+=c;}
+  }
+  cols.push(atual.trim());
+  return cols;
+}
+
+function parseBR(str){
+  str=str.replace(/^"|"$/g,'').trim();
+  // formato BR: 1.500,00 → 1500.00
+  if(str.includes(',')&&str.includes('.')){str=str.replace(/\./g,'').replace(',','.');}
+  else if(str.includes(',')&&!str.includes('.')){str=str.replace(',','.');}
+  return parseFloat(str);
+}
+
 function parsearCSVNubank(texto){
-  const linhas = texto.trim().split('\n').map(l=>l.trim()).filter(l=>l);
+  // remove BOM se existir
+  texto = texto.replace(/^﻿/,'');
+  const linhas = texto.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim());
   if(linhas.length < 2) return [];
   const header = linhas[0].toLowerCase();
 
   // Formato conta corrente: Data,Valor,Identificador,Descrição
   if(header.includes('identificador')){
     return linhas.slice(1).map(linha=>{
-      const cols = linha.split(',');
+      const cols = parseCsvLinha(linha);
       if(cols.length < 4) return null;
-      const data = cols[0].trim();
-      const valor = parseFloat(cols[1].trim().replace(',','.'));
-      const desc = cols.slice(3).join(',').trim().replace(/^"|"$/g,'');
+      const data = cols[0].replace(/^"|"$/g,'').trim();
+      const valor = parseBR(cols[1]);
+      const desc = cols.slice(3).join(' ').replace(/^"|"$/g,'').trim();
       if(isNaN(valor)||!desc) return null;
       const tipo = valor >= 0 ? 'entrada' : 'saida';
       const autocat = detectarCategoria(desc);
       const cat = autocat ? autocat.cat : (tipo==='entrada'?'Outros':'Ferramentas Digitais');
-      const [dd,mm,yyyy] = data.includes('/')? data.split('/') : [data.slice(8,10),data.slice(5,7),data.slice(0,4)];
-      const mes = `${yyyy}-${mm}`;
-      return {id:nextId++,tipo,desc,cat,data:`${dd}/${mm}/${yyyy}`,mes,valor:Math.abs(valor)};
+      const partes = data.includes('/') ? data.split('/') : [data.slice(8,10),data.slice(5,7),data.slice(0,4)];
+      const [dd,mm,yyyy] = partes;
+      return {id:nextId++,tipo,desc,cat,data:`${dd}/${mm}/${yyyy}`,mes:`${yyyy}-${mm}`,valor:Math.abs(valor)};
     }).filter(Boolean);
   }
 
   // Formato cartão: date,category,title,amount
   if(header.includes('amount')||header.includes('title')){
     return linhas.slice(1).map(linha=>{
-      const cols = linha.split(',');
+      const cols = parseCsvLinha(linha);
       if(cols.length < 4) return null;
-      const dataRaw = cols[0].trim();
-      const desc = cols[2].trim().replace(/^"|"$/g,'');
-      const valor = parseFloat(cols[cols.length-1].trim().replace(',','.'));
+      const dataRaw = cols[0].replace(/^"|"$/g,'').trim();
+      const desc = cols[2].replace(/^"|"$/g,'').trim();
+      const valor = parseBR(cols[cols.length-1]);
       if(isNaN(valor)||!desc) return null;
       const tipo = valor >= 0 ? 'entrada' : 'saida';
       const autocat = detectarCategoria(desc);
       const cat = autocat ? autocat.cat : (tipo==='entrada'?'Outros':'Ferramentas Digitais');
       const [yyyy,mm,dd] = dataRaw.split('-');
-      const mes = `${yyyy}-${mm}`;
-      return {id:nextId++,tipo,desc,cat,data:`${dd}/${mm}/${yyyy}`,mes,valor:Math.abs(valor)};
+      return {id:nextId++,tipo,desc,cat,data:`${dd}/${mm}/${yyyy}`,mes:`${yyyy}-${mm}`,valor:Math.abs(valor)};
     }).filter(Boolean);
   }
 
