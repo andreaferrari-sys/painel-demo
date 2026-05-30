@@ -162,15 +162,39 @@ tbody tr:hover td{background:#f9fafb;}
       <h2 style="font-size:22px;font-weight:700;color:#111827;">Painel Financeiro</h2>
       <p style="font-size:13px;color:#6b7280;margin-top:4px;" id="login-subtitle">Faça login para continuar</p>
     </div>
-    <div class="fg"><label class="fl">E-mail</label><input type="email" id="auth-email" class="fi" placeholder="seu@email.com"/></div>
-    <div class="fg"><label class="fl">Senha</label><input type="password" id="auth-senha" class="fi" placeholder="••••••••" onkeydown="if(event.key==='Enter')executarAuth()"/></div>
-    <div class="fg" id="auth-senha2-wrap" style="display:none;"><label class="fl">Confirmar senha</label><input type="password" id="auth-senha2" class="fi" placeholder="••••••••"/></div>
-    <div id="auth-erro" style="display:none;background:#fef2f2;color:#991b1b;font-size:12px;padding:10px 12px;border-radius:8px;margin-bottom:12px;"></div>
-    <button class="btn bp" style="width:100%;justify-content:center;" id="auth-btn" onclick="executarAuth()">Entrar</button>
-    <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:16px;">
-      <span id="auth-toggle-txt">Ainda não tem conta?</span>
-      <a href="#" style="color:#4f46e5;font-weight:600;margin-left:4px;" onclick="toggleAuthMode(event)" id="auth-toggle-link">Criar conta</a>
-    </p>
+    <!-- Formulário login/signup -->
+    <div id="form-auth">
+      <div class="fg"><label class="fl">E-mail</label><input type="email" id="auth-email" class="fi" placeholder="seu@email.com" value="andreaferrari@conectasales.com.br"/></div>
+      <div class="fg"><label class="fl">Senha</label><input type="password" id="auth-senha" class="fi" placeholder="••••••••" onkeydown="if(event.key==='Enter')executarAuth()"/></div>
+      <div class="fg" id="auth-senha2-wrap" style="display:none;"><label class="fl">Confirmar senha</label><input type="password" id="auth-senha2" class="fi" placeholder="••••••••"/></div>
+      <div id="auth-erro" style="display:none;background:#fef2f2;color:#991b1b;font-size:12px;padding:10px 12px;border-radius:8px;margin-bottom:12px;"></div>
+      <button class="btn bp" style="width:100%;justify-content:center;" id="auth-btn" onclick="executarAuth()">Entrar</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;">
+        <p style="font-size:12px;color:#9ca3af;">
+          <span id="auth-toggle-txt">Ainda não tem conta?</span>
+          <a href="#" style="color:#4f46e5;font-weight:600;margin-left:4px;" onclick="toggleAuthMode(event)" id="auth-toggle-link">Criar conta</a>
+        </p>
+        <a href="#" style="font-size:12px;color:#6b7280;" onclick="mostrarEsqueciSenha(event)">Esqueci minha senha</a>
+      </div>
+    </div>
+
+    <!-- Formulário esqueci senha -->
+    <div id="form-reset" style="display:none;">
+      <div class="fg"><label class="fl">E-mail cadastrado</label><input type="email" id="reset-email" class="fi" placeholder="seu@email.com" value="andreaferrari@conectasales.com.br"/></div>
+      <div id="reset-msg" style="display:none;font-size:12px;padding:10px 12px;border-radius:8px;margin-bottom:12px;"></div>
+      <button class="btn bp" style="width:100%;justify-content:center;" onclick="enviarResetSenha()">Enviar link de redefinição</button>
+      <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:14px;">
+        <a href="#" style="color:#4f46e5;font-weight:600;" onclick="voltarLogin(event)">← Voltar ao login</a>
+      </p>
+    </div>
+
+    <!-- Formulário nova senha (após clicar no link do email) -->
+    <div id="form-nova-senha" style="display:none;">
+      <div class="fg"><label class="fl">Nova senha</label><input type="password" id="nova-senha" class="fi" placeholder="••••••••"/></div>
+      <div class="fg"><label class="fl">Confirmar nova senha</label><input type="password" id="nova-senha2" class="fi" placeholder="••••••••"/></div>
+      <div id="nova-senha-msg" style="display:none;font-size:12px;padding:10px 12px;border-radius:8px;margin-bottom:12px;"></div>
+      <button class="btn bp" style="width:100%;justify-content:center;" onclick="salvarNovaSenha()">Salvar nova senha</button>
+    </div>
   </div>
 </div>
 
@@ -587,6 +611,43 @@ async function executarAuth(){
   const { data, error } = await sb.auth.signInWithPassword({ email, password: senha });
   if(error){ erroEl.textContent='E-mail ou senha incorretos.'; erroEl.style.display=''; return; }
   mostrarApp();
+}
+
+function mostrarEsqueciSenha(e){
+  e.preventDefault();
+  document.getElementById('form-auth').style.display='none';
+  document.getElementById('form-reset').style.display='';
+  document.getElementById('login-subtitle').textContent='Redefinir senha';
+}
+
+function voltarLogin(e){
+  e.preventDefault();
+  document.getElementById('form-reset').style.display='none';
+  document.getElementById('form-nova-senha').style.display='none';
+  document.getElementById('form-auth').style.display='';
+  document.getElementById('login-subtitle').textContent='Faça login para continuar';
+}
+
+async function enviarResetSenha(){
+  const email=document.getElementById('reset-email').value.trim();
+  const msg=document.getElementById('reset-msg');
+  if(!email){msg.style.background='#fef2f2';msg.style.color='#991b1b';msg.textContent='Informe o e-mail.';msg.style.display='';return;}
+  const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:'https://painel-demo-henna.vercel.app'});
+  if(error){msg.style.background='#fef2f2';msg.style.color='#991b1b';msg.textContent=error.message;msg.style.display='';return;}
+  msg.style.background='#f0fdf4';msg.style.color='#065f46';
+  msg.textContent='Link enviado! Verifique seu e-mail.';msg.style.display='';
+}
+
+async function salvarNovaSenha(){
+  const s1=document.getElementById('nova-senha').value;
+  const s2=document.getElementById('nova-senha2').value;
+  const msg=document.getElementById('nova-senha-msg');
+  if(s1!==s2){msg.style.background='#fef2f2';msg.style.color='#991b1b';msg.textContent='As senhas não coincidem.';msg.style.display='';return;}
+  const {error}=await sb.auth.updateUser({password:s1});
+  if(error){msg.style.background='#fef2f2';msg.style.color='#991b1b';msg.textContent=error.message;msg.style.display='';return;}
+  msg.style.background='#f0fdf4';msg.style.color='#065f46';
+  msg.textContent='Senha alterada com sucesso! Redirecionando...';msg.style.display='';
+  setTimeout(()=>mostrarApp(),1500);
 }
 
 async function fazerLogout(){
@@ -1399,6 +1460,16 @@ function editarConta(banco,tipo){
 // INIT
 // ══════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', async ()=>{
+  // detecta link de redefinição de senha (#type=recovery na URL)
+  const hash = window.location.hash;
+  if(hash.includes('type=recovery')){
+    document.getElementById('login-screen').style.display='flex';
+    document.getElementById('form-auth').style.display='none';
+    document.getElementById('form-nova-senha').style.display='';
+    document.getElementById('login-subtitle').textContent='Crie sua nova senha';
+    window.history.replaceState(null,'',window.location.pathname);
+    return;
+  }
   const { data:{ session } } = await sb.auth.getSession();
   if(session){
     mostrarApp();
