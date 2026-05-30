@@ -834,40 +834,115 @@ function confirmarExclusao(id){
 }
 
 // ══════════════════════════════════════════════
-// IMPORTAR
+// IMPORTAR — parser CSV Nubank
 // ══════════════════════════════════════════════
+const REGRAS_CAT = [
+  {palavras:['salário','salario','pagamento','consultoria','honorário','honorario','receita'],cat:'Pagamento de Consultoria',tipo:'entrada'},
+  {palavras:['mensalidade','aluno','turma','matrícula','matricula'],cat:'Mensalidade Presencial',tipo:'entrada'},
+  {palavras:['imposto','das','irpf','inss','darf','iss','simples'],cat:'Imposto',tipo:'saida'},
+  {palavras:['funcionário','funcionario','folha','salário pago','salario pago','equipe','colaborador','rescisão'],cat:'Custo de Equipe',tipo:'saida'},
+  {palavras:['curso','mentoria','treinamento','capacitação','capacitacao','workshop','evento'],cat:'Cursos e Mentorias',tipo:'saida'},
+  {palavras:['câmera','camera','microfone','tripé','tripe','iluminação','iluminacao','audiovisual','equipamento'],cat:'Equipamento Audiovisual',tipo:'saida'},
+  {palavras:['meta ads','google ads','facebook ads','instagram ads','anúncio','anuncio','tráfego','trafego','mídia','midia'],cat:'Anúncios',tipo:'saida'},
+  {palavras:['notion','slack','figma','adobe','canva','spotify','netflix','ferramenta','software','assinatura','subscription','saas'],cat:'Ferramentas Digitais',tipo:'saida'},
+];
+
+function detectarCategoria(desc){
+  const d = desc.toLowerCase();
+  for(const r of REGRAS_CAT){
+    if(r.palavras.some(p=>d.includes(p))) return {cat:r.cat,tipo:r.tipo};
+  }
+  return null;
+}
+
+function parsearCSVNubank(texto){
+  const linhas = texto.trim().split('\n').map(l=>l.trim()).filter(l=>l);
+  if(linhas.length < 2) return [];
+  const header = linhas[0].toLowerCase();
+
+  // Formato conta corrente: Data,Valor,Identificador,Descrição
+  if(header.includes('identificador')){
+    return linhas.slice(1).map(linha=>{
+      const cols = linha.split(',');
+      if(cols.length < 4) return null;
+      const data = cols[0].trim();
+      const valor = parseFloat(cols[1].trim().replace(',','.'));
+      const desc = cols.slice(3).join(',').trim().replace(/^"|"$/g,'');
+      if(isNaN(valor)||!desc) return null;
+      const tipo = valor >= 0 ? 'entrada' : 'saida';
+      const autocat = detectarCategoria(desc);
+      const cat = autocat ? autocat.cat : (tipo==='entrada'?'Outros':'Ferramentas Digitais');
+      const [dd,mm,yyyy] = data.includes('/')? data.split('/') : [data.slice(8,10),data.slice(5,7),data.slice(0,4)];
+      const mes = `${yyyy}-${mm}`;
+      return {id:nextId++,tipo,desc,cat,data:`${dd}/${mm}/${yyyy}`,mes,valor:Math.abs(valor)};
+    }).filter(Boolean);
+  }
+
+  // Formato cartão: date,category,title,amount
+  if(header.includes('amount')||header.includes('title')){
+    return linhas.slice(1).map(linha=>{
+      const cols = linha.split(',');
+      if(cols.length < 4) return null;
+      const dataRaw = cols[0].trim();
+      const desc = cols[2].trim().replace(/^"|"$/g,'');
+      const valor = parseFloat(cols[cols.length-1].trim().replace(',','.'));
+      if(isNaN(valor)||!desc) return null;
+      const tipo = valor >= 0 ? 'entrada' : 'saida';
+      const autocat = detectarCategoria(desc);
+      const cat = autocat ? autocat.cat : (tipo==='entrada'?'Outros':'Ferramentas Digitais');
+      const [yyyy,mm,dd] = dataRaw.split('-');
+      const mes = `${yyyy}-${mm}`;
+      return {id:nextId++,tipo,desc,cat,data:`${dd}/${mm}/${yyyy}`,mes,valor:Math.abs(valor)};
+    }).filter(Boolean);
+  }
+
+  return [];
+}
+
+let arquivoCSV = null;
+
 function onFileSelected(input){
   if(input.files&&input.files[0]){
-    document.getElementById('upload-label').textContent='📄 '+input.files[0].name;
+    arquivoCSV = input.files[0];
+    document.getElementById('upload-label').textContent='📄 '+arquivoCSV.name;
   }
 }
 
 function simularImport(){
+  if(!arquivoCSV){toast('Selecione um arquivo CSV primeiro','erro');return;}
   const prog=document.getElementById('import-progress');
   const fill=document.getElementById('import-fill');
   const status=document.getElementById('import-status');
   prog.style.display='block'; fill.style.width='0%';
   status.textContent='Lendo arquivo...';
-  let p=0;
-  const iv=setInterval(()=>{
-    p+=Math.random()*18+5;
-    if(p>=100){p=100;clearInterval(iv);
-      status.textContent='✓ 34 registros importados com sucesso!';
-      const conta=document.getElementById('import-conta').value;
-      const hoje=new Date();
-      const d=`${String(hoje.getDate()).padStart(2,'0')}/${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
-      const arquivo=document.getElementById('file-input').files[0]?.name||'extrato.csv';
-      const tbody=document.getElementById('tbody-import');
-      const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${d}</td><td>${arquivo}</td><td>${conta.split('—')[1]?.trim()||conta}</td><td>${Math.floor(Math.random()*20)+15}</td><td><span class="badge verde">✓ Importado</span></td>`;
-      tbody.insertBefore(tr,tbody.firstChild);
-      toast('Extrato importado com sucesso!','sucesso');
-    }
-    fill.style.width=p+'%';
-    if(p<40)status.textContent='Lendo arquivo...';
-    else if(p<70)status.textContent='Processando transações...';
-    else if(p<100)status.textContent='Categorizando lançamentos...';
-  },120);
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    fill.style.width='40%'; status.textContent='Processando transações...';
+    setTimeout(()=>{
+      const novos = parsearCSVNubank(e.target.result);
+      fill.style.width='80%'; status.textContent='Categorizando lançamentos...';
+      setTimeout(()=>{
+        if(novos.length===0){toast('Nenhum registro encontrado. Verifique o formato do arquivo.','erro');prog.style.display='none';return;}
+        LANCS.unshift(...novos);
+        fill.style.width='100%';
+        status.textContent=`✓ ${novos.length} registros importados com sucesso!`;
+        const conta=document.getElementById('import-conta').value;
+        const hoje=new Date();
+        const d=`${String(hoje.getDate()).padStart(2,'0')}/${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
+        const tbody=document.getElementById('tbody-import');
+        const tr=document.createElement('tr');
+        tr.innerHTML=`<td>${d}</td><td>${arquivoCSV.name}</td><td>${conta.split('—')[1]?.trim()||conta}</td><td>${novos.length}</td><td><span class="badge verde">✓ Importado</span></td>`;
+        tbody.insertBefore(tr,tbody.firstChild);
+        filtrarLanc();
+        toast(`${novos.length} lançamentos importados!`,'sucesso');
+        arquivoCSV=null;
+        document.getElementById('upload-label').textContent='Clique para selecionar ou arraste aqui';
+        document.getElementById('file-input').value='';
+      },400);
+    },400);
+  };
+  reader.readAsText(arquivoCSV, 'UTF-8');
 }
 
 // ══════════════════════════════════════════════
