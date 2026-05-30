@@ -310,6 +310,7 @@ tbody tr:hover td{background:#f9fafb;}
         <select id="import-conta" style="flex:1;">
           <option>Conta Corrente — Nubank</option>
           <option>Conta Corrente — Itaú</option>
+          <option>Conta Corrente — Cora</option>
           <option>Cartão Amex</option>
           <option>Cartão Elo</option>
         </select>
@@ -663,8 +664,8 @@ function renderLeg(id,cats){
 }
 
 function atualizarKPIs(mes){
-  const d=DADOS[mes],ant=MANT[mes]?DADOS[MANT[mes]]:null;
-  const res=d.e-d.s,mrg=(res/d.e)*100,pct=(d.s/d.e)*100;
+  const d=DADOS[mes]||{e:0,s:0,cs:[],ce:[]},ant=MANT[mes]?DADOS[MANT[mes]]:null;
+  const res=d.e-d.s,mrg=d.e>0?(res/d.e)*100:0,pct=d.e>0?(d.s/d.e)*100:0;
   document.getElementById('mes-label').textContent=MNOME[mes];
   document.getElementById('kpi-e').textContent=fmt(d.e);
   document.getElementById('kpi-s').textContent=fmt(d.s);
@@ -875,7 +876,7 @@ function parseBR(str){
   return parseFloat(str);
 }
 
-function parsearCSVNubank(texto){
+function parsearCSV(texto){
   // remove BOM se existir
   texto = texto.replace(/^﻿/,'');
   const linhas = texto.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim());
@@ -917,7 +918,96 @@ function parsearCSVNubank(texto){
     }).filter(Boolean);
   }
 
+  // Formato Cora (separado por ponto e vírgula): Data;Tipo;Valor;Descrição  ou  Data;Histórico;Valor;Saldo
+  const sep = texto.includes(';') ? ';' : null;
+  if(sep){
+    const linhasSep = texto.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim());
+    const hSep = linhasSep[0].toLowerCase();
+    return linhasSep.slice(1).map(linha=>{
+      const cols = linha.split(';').map(c=>c.replace(/^"|"$/g,'').trim());
+      if(cols.length < 3) return null;
+      const data = cols[0];
+      // detecta coluna de tipo (Crédito/Débito) ou usa sinal do valor
+      let tipo, valor, desc;
+      if(hSep.includes('tipo')||hSep.includes('crédito')||hSep.includes('credito')){
+        tipo = cols[1].toLowerCase().includes('créd')||cols[1].toLowerCase().includes('cred') ? 'entrada' : 'saida';
+        valor = Math.abs(parseBR(cols[2]));
+        desc = cols[3]||cols[1];
+      } else {
+        // histórico;valor;saldo ou data;histórico;valor;saldo
+        desc = cols[1];
+        valor = parseBR(cols[2]);
+        tipo = valor >= 0 ? 'entrada' : 'saida';
+        valor = Math.abs(valor);
+      }
+      if(isNaN(valor)||!desc) return null;
+      const autocat = detectarCategoria(desc);
+      const cat = autocat ? autocat.cat : (tipo==='entrada'?'Outros':'Ferramentas Digitais');
+      const partes = data.includes('/') ? data.split('/') : [data.slice(8,10),data.slice(5,7),data.slice(0,4)];
+      const [dd,mm,yyyy] = partes;
+      return {id:nextId++,tipo,desc,cat,data:`${dd}/${mm}/${yyyy}`,mes:`${yyyy}-${mm}`,valor};
+    }).filter(Boolean);
+  }
+
   return [];
+}
+
+// ══════════════════════════════════════════════
+// RECÁLCULO DE DADOS A PARTIR DE LANCS
+// ══════════════════════════════════════════════
+function recalcularDados(){
+  // zera os meses que existem em LANCS
+  const mesesComDados = [...new Set(LANCS.map(l=>l.mes))];
+  mesesComDados.forEach(mes=>{
+    const lancs = LANCS.filter(l=>l.mes===mes);
+    const e = lancs.filter(l=>l.tipo==='entrada').reduce((s,l)=>s+l.valor,0);
+    const s = lancs.filter(l=>l.tipo==='saida').reduce((s,l)=>s+l.valor,0);
+
+    const mapaE={}, mapaS={};
+    lancs.forEach(l=>{
+      if(l.tipo==='entrada') mapaE[l.cat]=(mapaE[l.cat]||0)+l.valor;
+      else mapaS[l.cat]=(mapaS[l.cat]||0)+l.valor;
+    });
+
+    const paleta=['#6366f1','#ef4444','#f59e0b','#8b5cf6','#3b82f6','#10b981','#ec4899','#14b8a6','#f97316','#84cc16'];
+    const corPara=(nome,lista)=>{
+      const def=lista.find(c=>c.n===nome);
+      if(def) return def.c;
+      const idx=Object.keys(mapaE).concat(Object.keys(mapaS)).indexOf(nome)%paleta.length;
+      return paleta[idx<0?0:idx];
+    };
+
+    const ce = Object.entries(mapaE).map(([n,v])=>({n,v,c:corPara(n,CAT_ENTRADA)})).filter(x=>x.v>0);
+    const cs = Object.entries(mapaS).map(([n,v])=>({n,v,c:corPara(n,CAT_SAIDA)})).filter(x=>x.v>0);
+
+    DADOS[mes]={e,s,ce,cs};
+  });
+}
+
+function recalcularHist(){
+  // pega os últimos 6 meses com dados em LANCS, em ordem
+  const mesesOrdenados = Object.keys(DADOS)
+    .filter(m=>DADOS[m].e>0||DADOS[m].s>0)
+    .sort()
+    .slice(-6);
+  const nomes={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};
+  HIST.splice(0,HIST.length,...mesesOrdenados.map(m=>{
+    const [y,mo]=m.split('-');
+    return {l:`${nomes[mo]}/${y.slice(2)}`,e:DADOS[m].e,s:DADOS[m].s};
+  }));
+}
+
+function atualizarDashboardCompleto(){
+  recalcularDados();
+  recalcularHist();
+  const mes = document.getElementById('mes-select').value;
+  if(chartBarras){
+    chartBarras.data.labels=HIST.map(d=>d.l);
+    chartBarras.data.datasets[0].data=HIST.map(d=>d.e);
+    chartBarras.data.datasets[1].data=HIST.map(d=>d.s);
+    chartBarras.update();
+  }
+  if(DADOS[mes]) trocarMes(mes);
 }
 
 let arquivoCSV = null;
@@ -941,7 +1031,7 @@ function simularImport(){
   reader.onload = function(e){
     fill.style.width='40%'; status.textContent='Processando transações...';
     setTimeout(()=>{
-      const novos = parsearCSVNubank(e.target.result);
+      const novos = parsearCSV(e.target.result);
       fill.style.width='80%'; status.textContent='Categorizando lançamentos...';
       setTimeout(()=>{
         if(novos.length===0){toast('Nenhum registro encontrado. Verifique o formato do arquivo.','erro');prog.style.display='none';return;}
@@ -956,7 +1046,8 @@ function simularImport(){
         tr.innerHTML=`<td>${d}</td><td>${arquivoCSV.name}</td><td>${conta.split('—')[1]?.trim()||conta}</td><td>${novos.length}</td><td><span class="badge verde">✓ Importado</span></td>`;
         tbody.insertBefore(tr,tbody.firstChild);
         filtrarLanc();
-        toast(`${novos.length} lançamentos importados!`,'sucesso');
+        atualizarDashboardCompleto();
+        toast(`${novos.length} lançamentos importados! Dashboard atualizado.`,'sucesso');
         arquivoCSV=null;
         document.getElementById('upload-label').textContent='Clique para selecionar ou arraste aqui';
         document.getElementById('file-input').value='';
