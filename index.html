@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Painel Financeiro — Demo</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f9fafb;display:flex;min-height:100vh;}
@@ -153,6 +154,29 @@ tbody tr:hover td{background:#f9fafb;}
 </head>
 <body>
 
+<!-- ═══════ LOGIN ═══════ -->
+<div id="login-screen" style="position:fixed;inset:0;background:#f9fafb;display:flex;align-items:center;justify-content:center;z-index:999;">
+  <div style="background:#fff;border-radius:16px;padding:40px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.15);margin:16px;">
+    <div style="text-align:center;margin-bottom:28px;">
+      <div style="width:48px;height:48px;background:#4f46e5;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;color:#fff;margin-bottom:12px;">$</div>
+      <h2 style="font-size:22px;font-weight:700;color:#111827;">Painel Financeiro</h2>
+      <p style="font-size:13px;color:#6b7280;margin-top:4px;" id="login-subtitle">Faça login para continuar</p>
+    </div>
+    <div class="fg"><label class="fl">E-mail</label><input type="email" id="auth-email" class="fi" placeholder="seu@email.com"/></div>
+    <div class="fg"><label class="fl">Senha</label><input type="password" id="auth-senha" class="fi" placeholder="••••••••" onkeydown="if(event.key==='Enter')executarAuth()"/></div>
+    <div class="fg" id="auth-senha2-wrap" style="display:none;"><label class="fl">Confirmar senha</label><input type="password" id="auth-senha2" class="fi" placeholder="••••••••"/></div>
+    <div id="auth-erro" style="display:none;background:#fef2f2;color:#991b1b;font-size:12px;padding:10px 12px;border-radius:8px;margin-bottom:12px;"></div>
+    <button class="btn bp" style="width:100%;justify-content:center;" id="auth-btn" onclick="executarAuth()">Entrar</button>
+    <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:16px;">
+      <span id="auth-toggle-txt">Ainda não tem conta?</span>
+      <a href="#" style="color:#4f46e5;font-weight:600;margin-left:4px;" onclick="toggleAuthMode(event)" id="auth-toggle-link">Criar conta</a>
+    </p>
+  </div>
+</div>
+
+<!-- ═══════ APP ═══════ -->
+<div id="app-body" style="display:none;flex:1;min-height:100vh;width:100%;display:none;">
+
 <!-- ═══════ SIDEBAR ═══════ -->
 <aside>
   <div class="sb-header">
@@ -183,7 +207,7 @@ tbody tr:hover td{background:#f9fafb;}
     </div>
   </nav>
   <div class="sb-footer">
-    <button class="btn-sair" onclick="toast('Sessão encerrada. Até logo!','sucesso')">
+    <button class="btn-sair" onclick="fazerLogout()">
       <svg width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Sair
     </button>
   </div>
@@ -502,6 +526,8 @@ tbody tr:hover td{background:#f9fafb;}
 
 </main>
 
+</div><!-- /#app-body -->
+
 <!-- ═══════ MODAL ═══════ -->
 <div class="modal-bg" id="modal-bg" onclick="fecharModal(event)">
   <div class="modal" id="modal-box">
@@ -518,6 +544,92 @@ tbody tr:hover td{background:#f9fafb;}
 <div id="toast"></div>
 
 <script>
+// ══════════════════════════════════════════════
+// SUPABASE
+// ══════════════════════════════════════════════
+const SUPA_URL = 'https://zjmiueyzqtgcpoycdvvw.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpqbWl1ZXl6cXRnY3BveWNkdnZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxMjE5ODEsImV4cCI6MjA5NTY5Nzk4MX0.4yyjqAx7qxq4jdcYAUJp1FQw6Tf4JKMqd9gMtqOeVaE';
+const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+// ── Auth ──────────────────────────────────────
+let modoAuth = 'login';
+
+function toggleAuthMode(e){
+  e.preventDefault();
+  modoAuth = modoAuth === 'login' ? 'signup' : 'login';
+  const isSignup = modoAuth === 'signup';
+  document.getElementById('login-subtitle').textContent   = isSignup ? 'Crie sua conta de administrador' : 'Faça login para continuar';
+  document.getElementById('auth-btn').textContent         = isSignup ? 'Criar conta' : 'Entrar';
+  document.getElementById('auth-toggle-txt').textContent  = isSignup ? 'Já tem conta?' : 'Ainda não tem conta?';
+  document.getElementById('auth-toggle-link').textContent = isSignup ? 'Fazer login' : 'Criar conta';
+  document.getElementById('auth-senha2-wrap').style.display = isSignup ? '' : 'none';
+  document.getElementById('auth-erro').style.display = 'none';
+}
+
+async function executarAuth(){
+  const email  = document.getElementById('auth-email').value.trim();
+  const senha  = document.getElementById('auth-senha').value;
+  const senha2 = document.getElementById('auth-senha2').value;
+  const erroEl = document.getElementById('auth-erro');
+  erroEl.style.display = 'none';
+
+  if(!email || !senha){ erroEl.textContent='Preencha e-mail e senha.'; erroEl.style.display=''; return; }
+
+  if(modoAuth === 'signup'){
+    if(senha !== senha2){ erroEl.textContent='As senhas não coincidem.'; erroEl.style.display=''; return; }
+    const { error } = await sb.auth.signUp({ email, password: senha });
+    if(error){ erroEl.textContent=error.message; erroEl.style.display=''; return; }
+    erroEl.style.background='#f0fdf4'; erroEl.style.color='#065f46';
+    erroEl.textContent='Conta criada! Verifique seu e-mail para confirmar.'; erroEl.style.display='';
+    return;
+  }
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: senha });
+  if(error){ erroEl.textContent='E-mail ou senha incorretos.'; erroEl.style.display=''; return; }
+  mostrarApp();
+}
+
+async function fazerLogout(){
+  await sb.auth.signOut();
+  LANCS = [];
+  document.getElementById('app-body').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('auth-email').value = '';
+  document.getElementById('auth-senha').value = '';
+}
+
+function mostrarApp(){
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-body').style.display = 'flex';
+  carregarDados();
+}
+
+// ── Carregar dados do banco ───────────────────
+async function carregarDados(){
+  const { data, error } = await sb.from('lancamentos').select('*').order('data', { ascending: false });
+  if(error){ console.error('Erro ao carregar lançamentos:', error); return; }
+
+  LANCS = (data||[]).map(r => {
+    const [y,m,d] = r.data.split('-');
+    return { id: r.id, tipo: r.tipo, desc: r.descricao, cat: r.categoria,
+             data: `${d}/${m}/${y}`, mes: r.mes, valor: parseFloat(r.valor), conta: r.conta||'' };
+  });
+
+  if(!chartBarras){ initCharts(); } else { atualizarDashboardCompleto(); }
+  filtrarLanc();
+}
+
+// ── Helpers DB ───────────────────────────────
+function lancToDB(l){
+  const [dd,mm,yyyy] = l.data.split('/');
+  return { user_id:(sb.auth.getUser?._()?.data?.user?.id), tipo:l.tipo, descricao:l.desc,
+           categoria:l.cat, data:`${yyyy}-${mm}-${dd}`, mes:l.mes, valor:l.valor, conta:l.conta||'' };
+}
+async function getUserId(){
+  const { data:{ user } } = await sb.auth.getUser();
+  return user?.id;
+}
+
 // ══════════════════════════════════════════════
 // DADOS
 // ══════════════════════════════════════════════
@@ -726,8 +838,8 @@ function renderTabelaLanc(lista){
         <td><span class="badge ${l.tipo}">${l.tipo==='entrada'?'Entrada':'Saída'}</span></td>
         <td class="${l.tipo==='entrada'?'ve':'vs'}">${l.tipo==='saida'?'- ':'+ '}${fmt(l.valor)}</td>
         <td style="display:flex;gap:6px;">
-          <button class="btn bs" style="padding:3px 8px;font-size:11px;" onclick="editarLanc(${l.id})">Editar</button>
-          <button class="btn bd" style="padding:3px 8px;font-size:11px;" onclick="excluirLanc(${l.id})">Excluir</button>
+          <button class="btn bs" style="padding:3px 8px;font-size:11px;" onclick="editarLanc('${l.id}')">Editar</button>
+          <button class="btn bd" style="padding:3px 8px;font-size:11px;" onclick="excluirLanc('${l.id}')">Excluir</button>
         </td>
       </tr>`).join('')
     :'<tr><td colspan="6" class="empty">Nenhum lançamento encontrado</td></tr>';
@@ -775,17 +887,25 @@ function abrirModalNovoLanc(){
   );
 }
 
-function salvarNovoLanc(){
+async function salvarNovoLanc(){
   const desc=document.getElementById('nl-desc').value.trim();
   const valor=parseFloat(document.getElementById('nl-valor').value);
   if(!desc){toast('Informe a descrição','erro');return;}
   if(!valor||valor<=0){toast('Informe um valor válido','erro');return;}
   const dataRaw=document.getElementById('nl-data').value;
   const [y,m,dd]=dataRaw.split('-');
-  LANCS.unshift({id:nextId++,tipo:document.getElementById('nl-tipo').value,desc,
-    cat:document.getElementById('nl-cat').value,data:`${dd}/${m}/${y}`,
-    mes:document.getElementById('nl-mes').value,valor});
-  fecharModal(); filtrarLanc(); toast('Lançamento adicionado!','sucesso');
+  const mes=document.getElementById('nl-mes').value;
+  const tipo=document.getElementById('nl-tipo').value;
+  const cat=document.getElementById('nl-cat').value;
+  const uid=await getUserId();
+  const { data, error } = await sb.from('lancamentos').insert({
+    user_id:uid, tipo, descricao:desc, categoria:cat,
+    data:dataRaw, mes, valor
+  }).select().single();
+  if(error){toast('Erro ao salvar: '+error.message,'erro');return;}
+  LANCS.unshift({id:data.id,tipo,desc,cat,data:`${dd}/${m}/${y}`,mes,valor});
+  fecharModal(); filtrarLanc(); atualizarDashboardCompleto();
+  toast('Lançamento adicionado!','sucesso');
 }
 
 function editarLanc(id){
@@ -808,18 +928,22 @@ function editarLanc(id){
   );
 }
 
-function salvarEdicaoLanc(id){
+async function salvarEdicaoLanc(id){
   const l=LANCS.find(x=>x.id===id);
   const desc=document.getElementById('el-desc').value.trim();
   const valor=parseFloat(document.getElementById('el-valor').value);
   if(!desc||!valor){toast('Preencha todos os campos','erro');return;}
   const dataRaw=document.getElementById('el-data').value;
   const [y,m,dd]=dataRaw.split('-');
-  l.tipo=document.getElementById('el-tipo').value;
-  l.desc=desc; l.valor=valor;
-  l.cat=document.getElementById('el-cat').value;
-  l.data=`${dd}/${m}/${y}`;
-  fecharModal(); filtrarLanc(); toast('Lançamento atualizado!','sucesso');
+  const tipo=document.getElementById('el-tipo').value;
+  const cat=document.getElementById('el-cat').value;
+  const { error } = await sb.from('lancamentos').update({
+    tipo, descricao:desc, categoria:cat, data:dataRaw, valor
+  }).eq('id', id);
+  if(error){toast('Erro ao atualizar: '+error.message,'erro');return;}
+  l.tipo=tipo; l.desc=desc; l.valor=valor; l.cat=cat; l.data=`${dd}/${m}/${y}`;
+  fecharModal(); filtrarLanc(); atualizarDashboardCompleto();
+  toast('Lançamento atualizado!','sucesso');
 }
 
 function excluirLanc(id){
@@ -829,9 +953,12 @@ function excluirLanc(id){
      <button class="btn bd" onclick="confirmarExclusao(${id})">Excluir</button>`
   );
 }
-function confirmarExclusao(id){
+async function confirmarExclusao(id){
+  const { error } = await sb.from('lancamentos').delete().eq('id', id);
+  if(error){toast('Erro ao excluir: '+error.message,'erro');return;}
   LANCS=LANCS.filter(x=>x.id!==id);
-  fecharModal(); filtrarLanc(); toast('Lançamento excluído');
+  fecharModal(); filtrarLanc(); atualizarDashboardCompleto();
+  toast('Lançamento excluído');
 }
 
 // ══════════════════════════════════════════════
@@ -1035,10 +1162,27 @@ function simularImport(){
       fill.style.width='80%'; status.textContent='Categorizando lançamentos...';
       setTimeout(()=>{
         if(novos.length===0){toast('Nenhum registro encontrado. Verifique o formato do arquivo.','erro');prog.style.display='none';return;}
-        LANCS.unshift(...novos);
-        fill.style.width='100%';
-        status.textContent=`✓ ${novos.length} registros importados com sucesso!`;
+        const uid=await getUserId();
         const conta=document.getElementById('import-conta').value;
+        // batch insert no Supabase
+        const rows=novos.map(l=>{
+          const [dd,mm,yyyy]=l.data.split('/');
+          return {user_id:uid,tipo:l.tipo,descricao:l.desc,categoria:l.cat,
+                  data:`${yyyy}-${mm}-${dd}`,mes:l.mes,valor:l.valor,conta};
+        });
+        const {data:inserted,error:errIns}=await sb.from('lancamentos').insert(rows).select();
+        if(errIns){toast('Erro ao salvar no banco: '+errIns.message,'erro');prog.style.display='none';return;}
+        // usa ids retornados pelo banco
+        const novosComId=inserted.map(r=>{
+          const [y,m,d]=r.data.split('-');
+          return {id:r.id,tipo:r.tipo,desc:r.descricao,cat:r.categoria,
+                  data:`${d}/${m}/${y}`,mes:r.mes,valor:parseFloat(r.valor),conta:r.conta||''};
+        });
+        LANCS.unshift(...novosComId);
+        // salva registro de importação
+        await sb.from('importacoes').insert({user_id:uid,arquivo:arquivoCSV.name,conta,registros:novos.length,status:'importado'});
+        fill.style.width='100%';
+        status.textContent=`✓ ${novos.length} registros importados e salvos!`;
         const hoje=new Date();
         const d=`${String(hoje.getDate()).padStart(2,'0')}/${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
         const tbody=document.getElementById('tbody-import');
@@ -1047,7 +1191,7 @@ function simularImport(){
         tbody.insertBefore(tr,tbody.firstChild);
         filtrarLanc();
         atualizarDashboardCompleto();
-        toast(`${novos.length} lançamentos importados! Dashboard atualizado.`,'sucesso');
+        toast(`${novos.length} lançamentos salvos no banco!`,'sucesso');
         arquivoCSV=null;
         document.getElementById('upload-label').textContent='Clique para selecionar ou arraste aqui';
         document.getElementById('file-input').value='';
@@ -1154,8 +1298,22 @@ function fecharMes(nome){
     <p style="font-size:14px;color:#374151;margin-bottom:12px;">Deseja fechar o mês de <strong>${nome}</strong>?</p>
     <p style="font-size:13px;color:#6b7280;">Após fechar, os lançamentos deste mês não poderão ser editados.</p>`,
     `<button class="btn bs" onclick="fecharModal()">Cancelar</button>
-     <button class="btn bp" onclick="fecharModal();toast('${nome} fechado com sucesso!','sucesso')">Confirmar fechamento</button>`
+     <button class="btn bp" onclick="confirmarFechamentoMes('${nome}')">Confirmar fechamento</button>`
   );
+}
+
+async function confirmarFechamentoMes(nome){
+  const mesKey=Object.keys(MNOME).find(k=>MNOME[k]===nome);
+  const d=DADOS[mesKey]||{e:0,s:0};
+  const res=d.e-d.s, mrg=d.e>0?((res/d.e)*100):0;
+  const uid=await getUserId();
+  const {error}=await sb.from('fechamentos').upsert({
+    user_id:uid, mes:mesKey, entradas:d.e, saidas:d.s,
+    resultado:res, margem:parseFloat(mrg.toFixed(2)), status:'fechado'
+  },{onConflict:'user_id,mes'});
+  fecharModal();
+  if(error){toast('Erro ao fechar mês: '+error.message,'erro');return;}
+  toast(`${nome} fechado e salvo no banco!`,'sucesso');
 }
 
 // ══════════════════════════════════════════════
@@ -1204,7 +1362,19 @@ function editarCategoria(nome,cor,tipo){
 // ══════════════════════════════════════════════
 // CONFIGURAÇÕES
 // ══════════════════════════════════════════════
-function salvarConfig(){
+async function salvarConfig(){
+  const uid=await getUserId();
+  const cfg={
+    user_id:uid,
+    nome_painel:document.querySelector('[value="Painel Financeiro"]')?.value||'Painel Financeiro',
+    subtitulo:document.querySelector('[value="Fechamento de Caixa Mensal"]')?.value||'Fechamento de Caixa Mensal',
+    email_alertas:document.querySelector('input[type=email]')?.value||'',
+    alertar_saidas:document.querySelectorAll('input[type=checkbox]')[0]?.checked??true,
+    lembrete_fechamento:document.querySelectorAll('input[type=checkbox]')[1]?.checked??true,
+    relatorio_semanal:document.querySelectorAll('input[type=checkbox]')[2]?.checked??false
+  };
+  const {error}=await sb.from('configuracoes').upsert(cfg,{onConflict:'user_id'});
+  if(error){toast('Erro ao salvar: '+error.message,'erro');return;}
   toast('Configurações salvas com sucesso!','sucesso');
 }
 function editarConta(banco,tipo){
@@ -1228,9 +1398,13 @@ function editarConta(banco,tipo){
 // ══════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════
-window.addEventListener('DOMContentLoaded',()=>{
-  initCharts();
-  renderTabelaLanc(LANCS.filter(l=>l.mes==='2026-04'));
+window.addEventListener('DOMContentLoaded', async ()=>{
+  const { data:{ session } } = await sb.auth.getSession();
+  if(session){
+    mostrarApp();
+  } else {
+    document.getElementById('login-screen').style.display='flex';
+  }
 });
 </script>
 </body>
